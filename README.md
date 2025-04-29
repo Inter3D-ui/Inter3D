@@ -68,7 +68,10 @@ python run.py
 --density_weight 1e-2
 ```
 ## result
-![](https://github.com/Inter3D-ui/Inter3D/blob/main/readme/6.png)
-![](https://github.com/Inter3D-ui/Inter3D/blob/main/readme/7.png)
-![](https://github.com/Inter3D-ui/Inter3D/blob/main/readme/8.png)
-![](https://github.com/Inter3D-ui/Inter3D/blob/main/readme/9.png)
+![result1](https://github.com/Inter3D-ui/Inter3D/blob/main/readme/6.png)
+
+![result2](https://github.com/Inter3D-ui/Inter3D/blob/main/readme/7.png)
+
+![result3](https://github.com/Inter3D-ui/Inter3D/blob/main/readme/8.png)
+
+![result4](https://github.com/Inter3D-ui/Inter3D/blob/main/readme/9.png)
