@@ -67,19 +67,6 @@ class NGP(nn.Module):
                     "n_hidden_layers": 1,
                 }
             )
-        # if self.sem_num != 0:
-        # sem dir rgb
-        self.semantic_net = \
-            tcnn.Network(
-                n_input_dims=16, n_output_dims=self.sem_num,
-                network_config={
-                    "otype": "FullyFusedMLP",
-                    "activation": "ReLU",
-                    "output_activation": "None",
-                    "n_neurons": 32,
-                    "n_hidden_layers": 1,
-                }
-            )
 
         self.dir_encoder = \
             tcnn.Encoding(
