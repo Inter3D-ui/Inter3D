@@ -21,8 +21,9 @@ from models.rendering import render, MAX_SAMPLES, stage_render_rays_train
 # optimizer, losses
 from apex.optimizers import FusedAdam
 from torch.optim.lr_scheduler import CosineAnnealingLR
-from losses.regularization import CompositeLoss, DistortionLoss, OpacityLoss, SemanticLoss, L1TimePlanes, \
-    TimeSmoothness, DensityLoss, BDCLoss
+from losses.regularization import CompositeLoss, DistortionLoss, OpacityLoss, L1TimePlanes, \
+    TimeSmoothness, DensityLoss
+import time
 
 # metrics
 from torchmetrics import (
@@ -67,6 +68,7 @@ def normalize_for_disp(img):
 class NeRFSystem(LightningModule):
     def __init__(self, hparams):
         super().__init__()
+        self.start_time = None
         self.save_hyperparameters(hparams)
 
         self.warmup_steps = 256
@@ -75,6 +77,10 @@ class NeRFSystem(LightningModule):
         self.train_psnr = PeakSignalNoiseRatio(data_range=1)
         self.val_psnr = PeakSignalNoiseRatio(data_range=1)
         self.val_ssim = StructuralSimilarityIndexMeasure(data_range=1)
+        self.val_lpips = LearnedPerceptualImagePatchSimilarity('vgg')
+
+        for p in self.val_lpips.net.parameters():
+            p.requires_grad = False
 
         self.model = NGP(scale=hparams.scale, stage_num=hparams.stage_num,
                          sem_num=hparams.sem_num,
@@ -112,11 +118,9 @@ class NeRFSystem(LightningModule):
         self.CompositeLoss = CompositeLoss(self.hparams.composite_weight)
         self.OpacityLoss = OpacityLoss(self.hparams.opacity_weight)
         self.DistortionLoss = DistortionLoss(self.hparams.distortion_weight)
-        self.SemanticLoss = SemanticLoss(self.hparams.semantic_weight)
         self.L1TimePlanesLoss = L1TimePlanes(self.hparams.l1TimePlanes_weight)
         self.TimeSmoothnessLoss = TimeSmoothness(self.hparams.timeSmoothness_weight)
         self.DensityLoss = DensityLoss(self.hparams.density_weight)
-        self.BDCLoss = BDCLoss(self.hparams.bdc_weight)
 
         kwargs = {'root_dir': self.hparams.root_dir,
                   'downsample': self.hparams.downsample,
@@ -185,6 +189,7 @@ class NeRFSystem(LightningModule):
         #                                     self.train_dataset.poses.to(self.device),
         #                                     self.train_dataset.img_wh,
         #                                     stage=int(0))
+        self.start_time = time.time()
         pass
 
     def training_step(self, batch, batch_nb, *args):
@@ -224,8 +229,7 @@ class NeRFSystem(LightningModule):
         loss += self.CompositeLoss.apply(results, batch)
         loss += self.DistortionLoss.apply(results)
         loss += self.OpacityLoss.apply(results)
-        # loss += self.SemanticLoss.apply(results, batch)
-        # loss += self.BDCLoss.apply(results, batch)
+
 
         if self.current_epoch // self.hparams.stage_end_epoch >= 1:
             base_num = batch['stage_num']
@@ -234,12 +238,14 @@ class NeRFSystem(LightningModule):
                       'random_bg': self.hparams.random_bg}
             if base_num == 0:
                 stage_num = int(np.random.choice([i for i in range(1, self.hparams.stage_num)], 1)[0])
+                grid_state = stage_num - 1
             else:
                 stage_num = 0
+                grid_state = base_num - 1
+
             kwargs['stage'] = stage_num
             sigmas, rgbs, semantics = self.model.forward(results['xyzs'].detach(), results['dirs'].detach(),
                                                          **kwargs)
-
             results_stage = {
                 'deltas': results["deltas"].detach(),
                 'ts': results["ts"].detach(),
@@ -253,9 +259,8 @@ class NeRFSystem(LightningModule):
             loss += self.DensityLoss.apply(results, results_stage, batch)
 
             # ------------------stage grid------------------
-            loss += self.L1TimePlanesLoss.apply(self.model.grids, batch['stage_num'] - 1)
-            loss += self.TimeSmoothnessLoss.apply(self.model.grids, batch['stage_num'] - 1)
-
+            loss += self.L1TimePlanesLoss.apply(self.model.grids, grid_state)
+            loss += self.TimeSmoothnessLoss.apply(self.model.grids, grid_state)
 
         with torch.no_grad():
             self.train_psnr(results['rgb'], batch['rgb'])
@@ -270,8 +275,21 @@ class NeRFSystem(LightningModule):
         return loss
 
     def on_validation_start(self):
-        torch.cuda.empty_cache()
-        self.col = imgviz.label_colormap()
+        # epoch_time = time.time() - self.start_time
+        # print(f'Epoch {self.current_epoch} took {epoch_time:.2f} seconds')
+
+        # if torch.cuda.is_available():
+        #     memory_allocated = torch.cuda.memory_allocated() / 1024 ** 2  # MB
+        #     memory_cached = torch.cuda.memory_reserved() / 1024 ** 2  # MB
+        #     print(f"Epoch {self.current_epoch} - Memory allocated: {memory_allocated:.2f} MB")
+        #     print(f"Epoch {self.current_epoch} - Memory cached: {memory_cached:.2f} MB")
+        #
+        #
+        # total_params = sum(p.numel() for p in self.model.parameters())
+        # print(f"Total number of parameters:{total_params}")
+
+        # torch.cuda.empty_cache()
+        # self.col = imgviz.label_colormap()
         self.val_dir = f'results/{self.hparams.exp_name}'
         os.makedirs(self.val_dir, exist_ok=True)
         if not self.hparams.share_grid:
@@ -298,6 +316,11 @@ class NeRFSystem(LightningModule):
         logs['ssim'] = self.val_ssim.compute()
         self.val_ssim.reset()
 
+        self.val_lpips(torch.clip(rgb_pred * 2 - 1, -1, 1),
+                       torch.clip(rgb_gt * 2 - 1, -1, 1))
+        logs['lpips'] = self.val_lpips.compute()
+        self.val_lpips.reset()
+
         idx = batch['img_idxs']
         rgb_pred = rearrange(results['rgb'].cpu().numpy(), '(h w) c -> h w c', h=h)
         rgb_pred = (rgb_pred * 255).astype(np.uint8)
@@ -306,7 +329,7 @@ class NeRFSystem(LightningModule):
         imageio.imsave(os.path.join(self.val_dir, f'{idx:03d}_d.png'), depth)
 
         # if self.hparams.stage_end_epoch == self.hparams.num_epochs:
-        # semantic_pred = rearrange(results['semantic'].cpu(), '(h w) c-> h w c', h=h)
+        # semantic_pred = rearrange(ngp_results['semantic'].cpu(), '(h w) c-> h w c', h=h)
         # semantic_pred = torch.argmax(semantic_pred, dim=-1).numpy()
         # semantic_pred = Image.fromarray(semantic_pred.astype(np.uint8), 'P')
         # semantic_pred.putpalette(self.col.flatten())
@@ -325,6 +348,10 @@ class NeRFSystem(LightningModule):
         ssims = torch.stack([x['ssim'] for x in outputs])
         mean_ssim = all_gather_ddp_if_available(ssims).mean()
         self.log('test/ssim', mean_ssim, True)
+
+        lpipss = torch.stack([x['lpips'] for x in outputs])
+        mean_lpips = all_gather_ddp_if_available(lpipss).mean()
+        self.log('test/lpips_vgg', mean_lpips, True)
 
     def get_progress_bar_dict(self):
         # don't show the version number
