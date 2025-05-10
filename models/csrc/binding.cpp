@@ -243,43 +243,6 @@ torch::Tensor distortion_loss_bw(
 }
 
 
-torch::Tensor ne_depth_fw(
-    const torch::Tensor sigmas,
-    const torch::Tensor deltas,
-    const torch::Tensor ts,
-    const torch::Tensor rays_a,
-    const torch::Tensor vr_samples
-){
-    CHECK_INPUT(sigmas);
-    CHECK_INPUT(deltas);
-    CHECK_INPUT(ts);
-    CHECK_INPUT(rays_a);
-    CHECK_INPUT(vr_samples);
-
-    return ne_depth_fw_cu(sigmas,deltas,ts,rays_a,vr_samples);
-}
-
-
-torch::Tensor ne_depth_bw(
-    const torch::Tensor dL_ddepth,
-    const torch::Tensor depth,
-    const torch::Tensor sigmas,
-    const torch::Tensor deltas,
-    const torch::Tensor ts,
-    const torch::Tensor rays_a,
-    const torch::Tensor vr_samples
-){
-    CHECK_INPUT(dL_ddepth);
-    CHECK_INPUT(depth);
-    CHECK_INPUT(sigmas);
-    CHECK_INPUT(deltas);
-    CHECK_INPUT(ts);
-    CHECK_INPUT(rays_a);
-    CHECK_INPUT(vr_samples);
-
-    return ne_depth_bw_cu(dL_ddepth,depth,sigmas,deltas,ts,rays_a,vr_samples);
-}
-
 
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m){
     m.def("ray_aabb_intersect", &ray_aabb_intersect);
@@ -298,7 +261,4 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m){
 
     m.def("distortion_loss_fw", &distortion_loss_fw);
     m.def("distortion_loss_bw", &distortion_loss_bw);
-
-    m.def("ne_depth_fw", &ne_depth_fw);
-    m.def("ne_depth_bw", &ne_depth_bw);
 }
