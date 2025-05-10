@@ -213,11 +213,10 @@ class NGP(nn.Module):
             sigmas, h = self.density_all(x, return_feat=True, stages=stages)
         else:
             sigmas, h = self.density(x, stage=stage, return_feat=True)
-        semantics = self.semantic_net(h)
         d = d / torch.norm(d, dim=1, keepdim=True)
         d = self.dir_encoder((d + 1) / 2)
         rgbs = self.rgb_net(torch.cat([d, h], 1))
-        return sigmas, rgbs, semantics
+        return sigmas, rgbs
 
     @torch.no_grad()
     def get_all_cells(self):
