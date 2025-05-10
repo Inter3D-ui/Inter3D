@@ -140,27 +140,27 @@ class VolumeRenderer(torch.autograd.Function):
 
     @staticmethod
     @custom_fwd(cast_inputs=torch.float32)
-    def forward(ctx, sigmas, rgbs, semantics, deltas, ts, rays_a, T_threshold):
-        total_samples, opacity, depth, rgb, ws, semantic = \
-            vren.composite_train_fw(sigmas, rgbs, semantics, deltas, ts,
+    def forward(ctx, sigmas, rgbs, deltas, ts, rays_a, T_threshold):
+        total_samples, opacity, depth, rgb, ws = \
+            vren.composite_train_fw(sigmas, rgbs, deltas, ts,
                                     rays_a, T_threshold)
-        ctx.save_for_backward(sigmas, rgbs, semantics, deltas, ts, rays_a,
-                              opacity, depth, rgb, ws, semantic)
+        ctx.save_for_backward(sigmas, rgbs, deltas, ts, rays_a,
+                              opacity, depth, rgb, ws)
         ctx.T_threshold = T_threshold
-        return total_samples, opacity, depth, rgb, ws, semantic
+        return total_samples, opacity, depth, rgb, ws
 
     @staticmethod
     @custom_bwd
-    def backward(ctx, dL_dtotal_samples, dL_dopacity, dL_ddepth, dL_drgb, dL_dws, dL_dsemantic):
-        sigmas, rgbs, semantics, deltas, ts, rays_a, \
-        opacity, depth, rgb, ws, semantic = ctx.saved_tensors
-        dL_dsigmas, dL_drgbs, dL_dsemantics = \
-            vren.composite_train_bw(dL_dopacity, dL_ddepth, dL_drgb, dL_dws, dL_dsemantic,
-                                    sigmas, rgbs, semantics, ws, deltas, ts,
+    def backward(ctx, dL_dtotal_samples, dL_dopacity, dL_ddepth, dL_drgb, dL_dws):
+        sigmas, rgbs, deltas, ts, rays_a, \
+        opacity, depth, rgb, ws = ctx.saved_tensors
+        dL_dsigmas, dL_drgbs = \
+            vren.composite_train_bw(dL_dopacity, dL_ddepth, dL_drgb, dL_dws,
+                                    sigmas, rgbs, ws, deltas, ts,
                                     rays_a,
-                                    opacity, depth, rgb, semantic,
+                                    opacity, depth, rgb,
                                     ctx.T_threshold)
-        return dL_dsigmas, dL_drgbs, dL_dsemantics, None, None, None, None
+        return dL_dsigmas, dL_drgbs, None, None, None, None
 
 
 class TruncExp(torch.autograd.Function):
