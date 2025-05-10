@@ -244,15 +244,14 @@ class NeRFSystem(LightningModule):
                 grid_state = base_num - 1
 
             kwargs['stage'] = stage_num
-            sigmas, rgbs, semantics = self.model.forward(results['xyzs'].detach(), results['dirs'].detach(),
+            sigmas, rgbs = self.model.forward(results['xyzs'].detach(), results['dirs'].detach(),
                                                          **kwargs)
             results_stage = {
                 'deltas': results["deltas"].detach(),
                 'ts': results["ts"].detach(),
                 'rays_a': results['rays_a'].detach(),
                 'sigmas': sigmas,
-                'rgbs': rgbs,
-                'semantics': semantics
+                'rgbs': rgbs
             }
             results_stage = stage_render_rays_train(results=results_stage, **kwargs)
             results_stage['stage_num'] = stage_num
@@ -328,13 +327,6 @@ class NeRFSystem(LightningModule):
         imageio.imsave(os.path.join(self.val_dir, f'{idx:03d}.png'), rgb_pred)
         imageio.imsave(os.path.join(self.val_dir, f'{idx:03d}_d.png'), depth)
 
-        # if self.hparams.stage_end_epoch == self.hparams.num_epochs:
-        # semantic_pred = rearrange(ngp_results['semantic'].cpu(), '(h w) c-> h w c', h=h)
-        # semantic_pred = torch.argmax(semantic_pred, dim=-1).numpy()
-        # semantic_pred = Image.fromarray(semantic_pred.astype(np.uint8), 'P')
-        # semantic_pred.putpalette(self.col.flatten())
-        # semantic_pred.save(os.path.join(self.val_dir, f'{idx:03d}_s.png'))
-
         if idx == 0:
             plt.imshow(rgb_pred)
             plt.show()
@@ -398,27 +390,15 @@ if __name__ == '__main__':
             slim_ckpt(f'ckpts/{hparams.exp_name}/epoch={hparams.num_epochs - 1}.ckpt')
         torch.save(ckpt_, f'ckpts/{hparams.exp_name}/epoch={hparams.num_epochs - 1}_slim.ckpt')
 
-    # imgs = sorted(glob.glob(os.path.join(system.val_dir, '*.png')))
-    # imageio.mimsave(os.path.join(system.val_dir, 'rgb.mp4'),
-    #                 [imageio.imread(img) for img in imgs[::2]],
-    #                 fps=30, macro_block_size=1)
-    # imageio.mimsave(os.path.join(system.val_dir, 'depth.mp4'),
-    #                 [imageio.imread(img) for img in imgs[1::2]],
-    #                 fps=30, macro_block_size=1)
 
     imgs = sorted(glob.glob(os.path.join(system.val_dir, '*.png')))
     rgb_list = []
     depth_list = []
-    sem_list = []
     for img_path in imgs:
         img = imageio.imread(img_path)
         if '_d.png' in img_path:
             depth_list.append(img)
-        elif '_s.png' in img_path:
-            sem_list.append(img)
         else:
             rgb_list.append(img)
     imageio.mimsave(os.path.join(system.val_dir, 'rgb.mp4'), rgb_list, fps=30, macro_block_size=1)
     imageio.mimsave(os.path.join(system.val_dir, 'depth.mp4'), depth_list, fps=30, macro_block_size=1)
-    # if hparams.stage_end_epoch == hparams.num_epochs:
-    # imageio.mimsave(os.path.join(system.val_dir, 'sem.mp4'), sem_list, fps=30, macro_block_size=1)
