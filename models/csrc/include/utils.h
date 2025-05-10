@@ -132,22 +132,5 @@ torch::Tensor distortion_loss_bw_cu(
 );
 
 
-torch::Tensor ne_depth_fw_cu(
-    const torch::Tensor sigmas,
-    const torch::Tensor deltas,
-    const torch::Tensor ts,
-    const torch::Tensor rays_a,
-    const torch::Tensor vr_samples
-);
 
-
-torch::Tensor ne_depth_bw_cu(
-    const torch::Tensor dL_ddepth,
-    const torch::Tensor depth,
-    const torch::Tensor sigmas,
-    const torch::Tensor deltas,
-    const torch::Tensor ts,
-    const torch::Tensor rays_a,
-    const torch::Tensor vr_samples
-);
 
