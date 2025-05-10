@@ -43,8 +43,6 @@ def __render_rays_test(model, rays_o, rays_d, hits_t, **kwargs):
     depth = torch.zeros(N_rays, device=device)
     rgb = torch.zeros(N_rays, 3, device=device)
 
-    semantic = torch.zeros(N_rays, model.sem_num, device=device)
-
     samples = total_samples = 0
     alive_indices = torch.arange(N_rays, device=device)
     # if it's synthetic data, bg is majority so min_samples=1 effectively covers the bg
@@ -71,25 +69,23 @@ def __render_rays_test(model, rays_o, rays_d, hits_t, **kwargs):
         if valid_mask.sum() == 0: break
 
         sigmas = torch.zeros(len(xyzs), device=device)
-        semantics = torch.zeros(len(xyzs), model.sem_num, device=device)
         rgbs = torch.zeros(len(xyzs), 3, device=device)
-        sigmas[valid_mask], _rgbs, _semantics = model(xyzs[valid_mask], dirs[valid_mask], **kwargs)
+        sigmas[valid_mask], _rgbs = model(xyzs[valid_mask], dirs[valid_mask], **kwargs)
         rgbs[valid_mask] = _rgbs.float()
-        semantics[valid_mask] = _semantics.float()
+
         sigmas = rearrange(sigmas, '(n1 n2) -> n1 n2', n2=N_samples)
         rgbs = rearrange(rgbs, '(n1 n2) c -> n1 n2 c', n2=N_samples)
-        semantics = rearrange(semantics, '(n1 n2) c-> n1 n2 c', n2=N_samples)
+
 
         vren.composite_test_fw(
-            sigmas, rgbs, semantics, deltas, ts,
+            sigmas, rgbs, deltas, ts,
             hits_t[:, 0], alive_indices, kwargs.get('T_threshold', 1e-4),
-            N_eff_samples, opacity, depth, rgb, semantic)
+            N_eff_samples, opacity, depth, rgb)
         alive_indices = alive_indices[alive_indices >= 0]  # remove converged rays
 
     results['opacity'] = opacity
     results['depth'] = depth
     results['rgb'] = rgb
-    results['semantic'] = semantic
     results['total_samples'] = total_samples  # total samples for all rays
 
     rgb_bg = torch.zeros(3, device=device)
@@ -123,11 +119,11 @@ def __render_rays_train(model, rays_o, rays_d, hits_t, **kwargs):
     #     if isinstance(v, torch.Tensor):
     #         kwargs[k] = torch.repeat_interleave(v[rays_a[:, 0]], rays_a[:, 2], 0)
 
-    sigmas, rgbs, semantics = model(xyzs, dirs, **kwargs)
+    sigmas, rgbs = model(xyzs, dirs, **kwargs)
 
     (results['vr_samples'], results['opacity'],
-     results['depth'], results['rgb'], results['ws'], results['semantic']) = \
-        VolumeRenderer.apply(sigmas, rgbs.contiguous(), semantics, results['deltas'], results['ts'],
+     results['depth'], results['rgb'], results['ws']) = \
+        VolumeRenderer.apply(sigmas, rgbs.contiguous(), results['deltas'], results['ts'],
                              rays_a, kwargs.get('T_threshold', 1e-4))
 
     results['rays_a'] = rays_a
@@ -135,7 +131,6 @@ def __render_rays_train(model, rays_o, rays_d, hits_t, **kwargs):
     results['rays_d'] = rays_d
     results['sigmas'] = sigmas
     results['rgbs'] = rgbs.contiguous()
-    results['semantics'] = semantics
     results['xyzs'] = xyzs
     results['dirs'] = dirs
 
@@ -151,8 +146,8 @@ def __render_rays_train(model, rays_o, rays_d, hits_t, **kwargs):
 
 def stage_render_rays_train(results, **kwargs):
     (results['vr_samples'], results['opacity'],
-     results['depth'], results['rgb'], results['ws'], results['semantic']) = \
-        VolumeRenderer.apply(results['sigmas'], results['rgbs'].contiguous(), results['semantics'],
+     results['depth'], results['rgb'], results['ws']) = \
+        VolumeRenderer.apply(results['sigmas'], results['rgbs'].contiguous(),
                              results['deltas'], results['ts'],
                              results['rays_a'], kwargs.get('T_threshold', 1e-4))
 
