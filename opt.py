@@ -19,20 +19,19 @@ def get_opts():
                         help='scene scale (whole scene must lie in [-scale, scale]^3')
     parser.add_argument('--stage_num', type=int, default=3,
                         help='stage number')
-    parser.add_argument('--sem_num', type=int, default=3,
-                        help='sem number')
+
     parser.add_argument('--share_grid', action='store_true', default=False,
                         help='all stage share one grid')
 
     # loss parameters
-    parser.add_argument('--composite_weight', type=float, default=1)
+    parser.add_argument('--DCP_weight', type=float, default=1)
     parser.add_argument('--semantic_weight', type=float, default=1e-2)
     parser.add_argument('--l1TimePlanes_weight', type=float, default=1e-3)
     parser.add_argument('--timeSmoothness_weight', type=float, default=1e-3)
     parser.add_argument('--distortion_weight', type=float, default=1e-2)
     parser.add_argument('--opacity_weight', type=float, default=1e-3)
-    parser.add_argument('--density_weight', type=float, default=1e-3)
-    parser.add_argument('--bdc_weight', type=float, default=1e-3)
+    parser.add_argument('--MSR_weight', type=float, default=1e-3)
+    parser.add_argument('--MSR_depth_weight', type=float, default=1e-3)
 
     # training options
     parser.add_argument('--batch_size', type=int, default=8192,
