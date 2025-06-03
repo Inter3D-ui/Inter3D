@@ -21,8 +21,8 @@ from models.rendering import render, MAX_SAMPLES, stage_render_rays_train
 # optimizer, losses
 from apex.optimizers import FusedAdam
 from torch.optim.lr_scheduler import CosineAnnealingLR
-from losses.regularization import CompositeLoss, DistortionLoss, OpacityLoss, L1TimePlanes, \
-    TimeSmoothness, DensityLoss
+from losses.regularization import DCPLoss, DistortionLoss, OpacityLoss, L1TimePlanes, \
+    TimeSmoothness, MSRLoss
 import time
 
 # metrics
@@ -83,9 +83,7 @@ class NeRFSystem(LightningModule):
             p.requires_grad = False
 
         self.model = NGP(scale=hparams.scale, stage_num=hparams.stage_num,
-                         sem_num=hparams.sem_num,
-                         # sem_num=hparams.sem_num if hparams.stage_end_epoch == hparams.num_epochs else 0,
-                         share_grid=hparams.share_grid)
+                        share_grid=hparams.share_grid)
         G = self.model.grid_size
         if hparams.share_grid:
             self.model.register_buffer('density_grid',
@@ -115,12 +113,12 @@ class NeRFSystem(LightningModule):
         return render(self.model, rays_o, rays_d, **kwargs)
 
     def setup(self, stage):
-        self.CompositeLoss = CompositeLoss(self.hparams.composite_weight)
+        self.DCPLoss = DCPLoss(self.hparams.DCP_weight)
         self.OpacityLoss = OpacityLoss(self.hparams.opacity_weight)
         self.DistortionLoss = DistortionLoss(self.hparams.distortion_weight)
         self.L1TimePlanesLoss = L1TimePlanes(self.hparams.l1TimePlanes_weight)
         self.TimeSmoothnessLoss = TimeSmoothness(self.hparams.timeSmoothness_weight)
-        self.DensityLoss = DensityLoss(self.hparams.density_weight)
+        self.MSRLoss = MSRLoss(self.hparams.MSR_weight, self.hparams.MSR_depth_weight)
 
         kwargs = {'root_dir': self.hparams.root_dir,
                   'downsample': self.hparams.downsample,
@@ -226,10 +224,9 @@ class NeRFSystem(LightningModule):
 
         # ------------------bg------------------
         results = self.forward(batch, split='train', stage=batch['stage_num'], stages=None)
-        loss += self.CompositeLoss.apply(results, batch)
+        loss += self.DCPLoss.apply(results, batch)
         loss += self.DistortionLoss.apply(results)
         loss += self.OpacityLoss.apply(results)
-
 
         if self.current_epoch // self.hparams.stage_end_epoch >= 1:
             base_num = batch['stage_num']
@@ -245,7 +242,7 @@ class NeRFSystem(LightningModule):
 
             kwargs['stage'] = stage_num
             sigmas, rgbs = self.model.forward(results['xyzs'].detach(), results['dirs'].detach(),
-                                                         **kwargs)
+                                              **kwargs)
             results_stage = {
                 'deltas': results["deltas"].detach(),
                 'ts': results["ts"].detach(),
@@ -255,7 +252,7 @@ class NeRFSystem(LightningModule):
             }
             results_stage = stage_render_rays_train(results=results_stage, **kwargs)
             results_stage['stage_num'] = stage_num
-            loss += self.DensityLoss.apply(results, results_stage, batch)
+            loss += self.MSRLoss.apply(results, results_stage, batch)
 
             # ------------------stage grid------------------
             loss += self.L1TimePlanesLoss.apply(self.model.grids, grid_state)
@@ -274,21 +271,20 @@ class NeRFSystem(LightningModule):
         return loss
 
     def on_validation_start(self):
-        # epoch_time = time.time() - self.start_time
-        # print(f'Epoch {self.current_epoch} took {epoch_time:.2f} seconds')
+        epoch_time = time.time() - self.start_time
+        print(f'Epoch {self.current_epoch} took {epoch_time:.2f} seconds')
 
-        # if torch.cuda.is_available():
-        #     memory_allocated = torch.cuda.memory_allocated() / 1024 ** 2  # MB
-        #     memory_cached = torch.cuda.memory_reserved() / 1024 ** 2  # MB
-        #     print(f"Epoch {self.current_epoch} - Memory allocated: {memory_allocated:.2f} MB")
-        #     print(f"Epoch {self.current_epoch} - Memory cached: {memory_cached:.2f} MB")
-        #
-        #
-        # total_params = sum(p.numel() for p in self.model.parameters())
-        # print(f"Total number of parameters:{total_params}")
+        if torch.cuda.is_available():
+            memory_allocated = torch.cuda.memory_allocated() / 1024 ** 2  # MB
+            memory_cached = torch.cuda.memory_reserved() / 1024 ** 2  # MB
+            print(f"Epoch {self.current_epoch} - Memory allocated: {memory_allocated:.2f} MB")
+            print(f"Epoch {self.current_epoch} - Memory cached: {memory_cached:.2f} MB")
 
-        # torch.cuda.empty_cache()
-        # self.col = imgviz.label_colormap()
+        total_params = sum(p.numel() for p in self.model.parameters())
+        print(f"Total number of parameters:{total_params}")
+
+        torch.cuda.empty_cache()
+        self.col = imgviz.label_colormap()
         self.val_dir = f'results/{self.hparams.exp_name}'
         os.makedirs(self.val_dir, exist_ok=True)
         if not self.hparams.share_grid:
@@ -299,8 +295,10 @@ class NeRFSystem(LightningModule):
     def validation_step(self, batch, batch_nb):
         rgb_gt = batch['rgb']
         stages = [i for i in range(self.hparams.stage_num)]
+
         # stages = [1]
         results = self.forward(batch, split='test', stage=None, stages=stages)
+        idx = batch['img_idxs']
 
         logs = {}
         # compute each metric per image
@@ -320,7 +318,6 @@ class NeRFSystem(LightningModule):
         logs['lpips'] = self.val_lpips.compute()
         self.val_lpips.reset()
 
-        idx = batch['img_idxs']
         rgb_pred = rearrange(results['rgb'].cpu().numpy(), '(h w) c -> h w c', h=h)
         rgb_pred = (rgb_pred * 255).astype(np.uint8)
         depth = depth2img(rearrange(results['depth'].cpu().numpy(), '(h w) -> h w', h=h))
@@ -389,7 +386,6 @@ if __name__ == '__main__':
         ckpt_ = \
             slim_ckpt(f'ckpts/{hparams.exp_name}/epoch={hparams.num_epochs - 1}.ckpt')
         torch.save(ckpt_, f'ckpts/{hparams.exp_name}/epoch={hparams.num_epochs - 1}_slim.ckpt')
-
 
     imgs = sorted(glob.glob(os.path.join(system.val_dir, '*.png')))
     rgb_list = []
