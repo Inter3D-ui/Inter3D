@@ -10,7 +10,7 @@ from models.field import init_grid_param, interpolate_ms_features
 
 
 class NGP(nn.Module):
-    def __init__(self, scale, stage_num, sem_num, share_grid):
+    def __init__(self, scale, stage_num, share_grid):
         super().__init__()
         # scene bounding box
         self.scale = scale
@@ -23,7 +23,6 @@ class NGP(nn.Module):
         self.cascades = max(1 + int(np.ceil(np.log2(2 * scale))), 1)
         self.grid_size = 128
         self.stage_num = stage_num
-        self.sem_num = sem_num
         self.share_grid = share_grid
         if self.share_grid:
             self.register_buffer('density_bitfield',
